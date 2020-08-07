@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -x
+
 mkdir -p /root/.ssh
 echo "${INPUT_DST_KEY}" > /root/.ssh/id_rsa
 chmod 600 /root/.ssh/id_rsa
@@ -75,14 +75,26 @@ else
   exit 1
 fi
 
+function err_exit {
+  echo "$1" 1>$2
+  exit 1
+}
 
 function cd_src_repo
 {
   echo -e "\033[31m(0/3)\033[0m" "Downloading..."
   if [ ! -d "$1" ]; then
-    git clone $SRC_REPO_BASE_URL$SRC_ACCOUNT/$1.git
+    git clone $SRC_REPO_BASE_URL$SRC_ACCOUNT/$1.git || err_exit "git clone failed"
   fi
   cd $1
+}
+
+function _create_remote_repo {
+    if [[ "$DST_TYPE" == "github" ]]; then
+      curl -H "Authorization: token $2" --data '{"name":"'$1'"}' $DST_REPO_CREATE_API
+    elif [[ "$DST_TYPE" == "gitee" ]]; then
+      curl -X POST --header 'Content-Type: application/json;charset=UTF-8' $DST_REPO_CREATE_API -d '{"name": "'$1'","access_token": "'$2'"}'
+    fi
 }
 
 function add_remote_repo
@@ -90,11 +102,7 @@ function add_remote_repo
   # Auto create non-existing repo
   has_repo=`curl $DST_REPO_LIST_API | jq '.[] | select(.full_name=="'$DST_ACCOUNT'/'$1'").name' | wc -l`
   if [ $has_repo == 0 ]; then
-    if [[ "$DST_TYPE" == "github" ]]; then
-      curl -H "Authorization: token $2" --data '{"name":"'$1'"}' $DST_REPO_CREATE_API
-    elif [[ "$DST_TYPE" == "gitee" ]]; then
-      curl -X POST --header 'Content-Type: application/json;charset=UTF-8' $DST_REPO_CREATE_API -d '{"name": "'$1'","access_token": "'$2'"}'
-    fi
+    _create_remote_repo || err_exit "create repo failed" 
   fi
   git remote add $DST_TYPE git@$DST_TYPE.com:$DST_ACCOUNT/$1.git
 }
@@ -109,7 +117,7 @@ function import_repo
 {
   echo -e "\033[31m(2/3)\033[0m" "Importing..."
   git remote set-head origin -d
-  git push $DST_TYPE refs/remotes/origin/*:refs/heads/* --tags --prune
+  git push $DST_TYPE refs/remotes/origin/*:refs/heads/* --tags --prune || err_exit "push failed"
 }
 
 function _check_in_list () {
